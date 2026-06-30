@@ -3,11 +3,11 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export const RequireBarber = ({ children }) => {
-  const { user, claims, loading } = useAuth();
+  const { user, role, loading } = useAuth();
 
   if (loading) return null;
 
-  if (!user || !['admin', 'barber'].includes(claims?.role)) {
+  if (!user || (role !== 'admin' && role !== 'barber')) {
     return <Navigate to="/staff/login" replace />;
   }
 

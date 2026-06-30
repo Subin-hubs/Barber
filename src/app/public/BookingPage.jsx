@@ -82,15 +82,43 @@ export const BookingPage = () => {
           String(selectedDate.getDate()).padStart(2, '0')
         ].join('-');
 
-        const takenSlots = await getTakenSlots(dateStr, selectedBarber);
-        const allSlots = generateSlots('09:00', '19:00', 30);
-        
-        const mappedSlots = allSlots.map(time => ({
-          time,
-          available: !takenSlots.includes(time)
-        }));
+        let start = '09:00';
+        let end = '19:00';
+        let isOpen = true;
 
-        setAvailableSlots(mappedSlots);
+        if (selectedBarber !== 'any') {
+          const barber = barbers.find(b => b.id === selectedBarber);
+          if (barber) {
+            // Check if barber is on leave
+            if (barber.leaves?.some(l => l.date === dateStr)) {
+              isOpen = false;
+            } else {
+              // Check working hours for this specific day
+              const dayName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
+              const shift = barber.workingHours?.find(wh => wh.day === dayName);
+              if (shift) {
+                isOpen = shift.isOpen;
+                start = shift.openTime;
+                end = shift.closeTime;
+              }
+            }
+          }
+        }
+
+        if (!isOpen) {
+          setAvailableSlots([]);
+        } else {
+          const takenSlots = await getTakenSlots(dateStr, selectedBarber);
+          const allSlots = generateSlots(start, end, 30);
+          
+          const mappedSlots = allSlots.map(time => ({
+            time,
+            available: !takenSlots.includes(time)
+          }));
+
+          setAvailableSlots(mappedSlots);
+        }
+        
         setSelectedTime(null); // Reset time when date changes
       } catch (err) {
         console.error("Error loading slots", err);

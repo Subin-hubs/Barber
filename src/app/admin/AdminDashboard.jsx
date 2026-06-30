@@ -1,22 +1,51 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CalendarDays, DollarSign, UserX, Clock, ArrowRight } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Link } from 'react-router-dom';
+import { getAdminDashboardMetrics } from '../../firebase/bookingService';
 
 export const AdminDashboard = () => {
-  const kpis = [
-    { label: "Today's Bookings", value: '24 / 30', icon: CalendarDays },
-    { label: "Today's Revenue", value: 'NPR 12,500', icon: DollarSign },
-    { label: 'No-show Rate (30d)', value: '4.2%', icon: UserX },
-    { label: 'Pending Confirmations', value: '5', icon: Clock },
-  ];
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const recentAppointments = [
-    { id: 'F3A9', customer: 'Alex Turner', barber: 'John Doe', service: 'Classic Haircut', time: '14:30', status: 'confirmed' },
-    { id: 'B2C1', customer: 'Sam Riley', barber: 'Mike Smith', service: 'Beard Trim & Shape', time: '15:00', status: 'pending' },
-    { id: '7D4E', customer: 'Jordan Peele', barber: 'David Lee', service: 'Hair & Beard Combo', time: '15:30', status: 'in_progress' },
-    { id: 'X9Y8', customer: 'Marcus Johnson', barber: 'John Doe', service: 'Classic Haircut', time: '16:00', status: 'confirmed' },
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const data = await getAdminDashboardMetrics();
+        setMetrics(data);
+      } catch (err) {
+        console.error("Failed to fetch dashboard metrics:", err);
+        setError("Failed to load dashboard data. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMetrics();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[50vh]">
+        <div className="text-navy text-lg animate-pulse font-medium">Loading Dashboard...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[50vh]">
+        <div className="text-red-500 bg-red-50 p-4 rounded-xl border border-red-100">{error}</div>
+      </div>
+    );
+  }
+
+  const kpis = [
+    { label: "Today's Bookings", value: String(metrics.todaysBookings), icon: CalendarDays },
+    { label: "Today's Revenue", value: `NPR ${metrics.todaysRevenue.toLocaleString()}`, icon: DollarSign },
+    { label: 'No-show Rate (all time)', value: `${metrics.noShowRate}%`, icon: UserX },
+    { label: 'Pending Confirmations', value: String(metrics.pendingConfirmations), icon: Clock },
   ];
 
   return (
@@ -54,20 +83,20 @@ export const AdminDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Charts area placeholder */}
+        {/* Charts area */}
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-border h-80 flex flex-col">
             <h2 className="text-xl font-bold text-navy mb-6">Bookings This Week</h2>
             <div className="flex-1 flex items-end justify-between gap-2 md:gap-6 pt-6 border-t border-border/50">
-              {/* Dummy Bar Chart */}
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
-                const heights = [40, 60, 45, 80, 100, 90, 30];
+              {metrics.weekDays.map((day, i) => {
+                const height = metrics.weekHeights[i];
                 return (
-                  <div key={day} className="flex flex-col items-center flex-1 group">
+                  <div key={day + i} className="flex flex-col items-center flex-1 group">
                     <div className="w-full relative h-40 flex items-end justify-center">
                       <div 
                         className="w-full max-w-[3rem] bg-gold-light group-hover:bg-gold rounded-t-sm transition-colors duration-300"
-                        style={{ height: `${heights[i]}%` }}
+                        style={{ height: `${height}%` }}
+                        title={`${metrics.weekCounts[i]} bookings`}
                       ></div>
                     </div>
                     <span className="text-xs font-semibold text-text-muted mt-3 uppercase">{day}</span>
@@ -98,19 +127,25 @@ export const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {recentAppointments.map(apt => (
-                    <tr key={apt.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-4 font-mono text-sm text-gold font-medium">{apt.id}</td>
-                      <td className="p-4 font-medium text-text-primary">{apt.customer}</td>
-                      <td className="p-4 text-text-secondary">{apt.barber}</td>
-                      <td className="p-4 text-text-secondary">{apt.service}</td>
-                      <td className="p-4 font-medium text-navy">{apt.time}</td>
-                      <td className="p-4"><StatusBadge status={apt.status} /></td>
-                      <td className="p-4 text-right">
-                        <button className="text-xs font-medium text-navy hover:text-gold transition-colors">View</button>
-                      </td>
+                  {metrics.recentAppointments.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="p-8 text-center text-text-muted">No recent appointments found.</td>
                     </tr>
-                  ))}
+                  ) : (
+                    metrics.recentAppointments.map(apt => (
+                      <tr key={apt.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-4 font-mono text-sm text-gold font-medium">{apt.bookingId || apt.id.substring(0, 6)}</td>
+                        <td className="p-4 font-medium text-text-primary">{apt.customerName}</td>
+                        <td className="p-4 text-text-secondary">{apt.barberName}</td>
+                        <td className="p-4 text-text-secondary">{apt.serviceName}</td>
+                        <td className="p-4 font-medium text-navy">{apt.date} {apt.slot}</td>
+                        <td className="p-4"><StatusBadge status={apt.status} /></td>
+                        <td className="p-4 text-right">
+                          <Link to="/admin/appointments" className="text-xs font-medium text-navy hover:text-gold transition-colors">View</Link>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -122,24 +157,24 @@ export const AdminDashboard = () => {
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-border">
             <h2 className="text-xl font-bold text-navy mb-6">Appointments by Status</h2>
             <div className="flex items-center justify-center h-48 relative">
-              {/* Dummy Donut Chart */}
-              <div className="w-32 h-32 rounded-full border-[16px] border-border relative">
-                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-t-gold border-r-gold rotate-45"></div>
-                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-l-navy -rotate-45"></div>
+              <div className="w-32 h-32 rounded-full border-[16px] border-border relative flex items-center justify-center">
+                 <span className="text-xl font-bold text-navy">{metrics.statusPercentages.confirmed || 0}%</span>
+                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-t-gold border-r-gold rotate-45 opacity-80"></div>
+                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-l-navy -rotate-45 opacity-80"></div>
               </div>
             </div>
             <div className="space-y-3 mt-6">
               <div className="flex justify-between text-sm">
                 <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-gold mr-2"></span> Confirmed</div>
-                <span className="font-semibold text-navy">45%</span>
+                <span className="font-semibold text-navy">{metrics.statusPercentages.confirmed || 0}%</span>
               </div>
               <div className="flex justify-between text-sm">
                 <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-navy mr-2"></span> Completed</div>
-                <span className="font-semibold text-navy">30%</span>
+                <span className="font-semibold text-navy">{metrics.statusPercentages.completed || 0}%</span>
               </div>
               <div className="flex justify-between text-sm">
                 <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-border mr-2"></span> Pending</div>
-                <span className="font-semibold text-navy">25%</span>
+                <span className="font-semibold text-navy">{metrics.statusPercentages.pending || 0}%</span>
               </div>
             </div>
           </div>

@@ -37,9 +37,29 @@ export const BarberAvailabilityPage = () => {
         const b = await getBarberByUserId(user.uid);
         if (b) {
           setBarber(b);
-          if (b.workingHours) setWorkingHours(b.workingHours);
-          if (b.leaves) setLeaves(b.leaves);
-          if (b.breaks) setBreaks(b.breaks);
+
+          // Default weekly schedule
+          const defaultSchedule = days.map(day => ({
+            day,
+            isOpen: day !== "Sunday",
+            openTime: "09:00",
+            closeTime: "19:00"
+          }));
+
+          // Only use Firestore data if it's already the correct array format
+          if (Array.isArray(b.workingHours)) {
+            setWorkingHours(b.workingHours);
+          } else {
+            setWorkingHours(defaultSchedule);
+          }
+
+          if (Array.isArray(b.leaves)) {
+            setLeaves(b.leaves);
+          }
+
+          if (Array.isArray(b.breaks)) {
+            setBreaks(b.breaks);
+          }
         }
       } catch (err) {
         console.error("Error loading availability", err);

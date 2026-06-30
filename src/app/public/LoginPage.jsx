@@ -3,6 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from "../../context/AuthContext";
 import { Button } from "../../components/ui/Button";
 import { Scissors, Loader2 } from 'lucide-react';
+import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
+import { db } from '../../firebase/config';
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -11,15 +13,15 @@ export const LoginPage = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { login, user, claims, loading } = useAuth();
+  const { login, user, role, loading, logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!loading && user) {
-      if (claims?.role === 'admin') navigate('/admin/dashboard');
-      else if (claims?.role === 'barber') navigate('/barber/dashboard');
+      if (role === 'admin') navigate('/admin/dashboard');
+      else if (role === 'barber') navigate('/barber/dashboard');
     }
-  }, [user, claims, loading, navigate]);
+  }, [user, role, loading, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,16 +30,34 @@ export const LoginPage = () => {
 
     try {
       const userCredential = await login(email, password);
-      // Force token refresh to get custom claims immediately if newly assigned
-      const idTokenResult = await userCredential.user.getIdTokenResult(true);
-      const role = idTokenResult.claims.role;
+      const uid = userCredential.user.uid;
       
-      if (role === 'admin') {
+      // Look up role in Firestore to navigate instantly and show error if unauthorized
+      let adminDoc = await getDoc(doc(db, 'admins', uid));
+      
+      // Automatic Admin Bootstrap
+      if (!adminDoc.exists() && userCredential.user.email === 'admin@barbershop.com') {
+        await setDoc(doc(db, 'admins', uid), {
+          role: "admin",
+          name: "Administrator",
+          email: "admin@barbershop.com",
+          active: true,
+          createdAt: Timestamp.now()
+        });
+        adminDoc = await getDoc(doc(db, 'admins', uid));
+      }
+
+      if (adminDoc.exists()) {
         navigate('/admin/dashboard');
-      } else if (role === 'barber') {
-        navigate('/barber/dashboard');
       } else {
-        setError('You do not have staff access.');
+        const barberDoc = await getDoc(doc(db, 'barbers', uid));
+        if (barberDoc.exists()) {
+          navigate('/barber/dashboard');
+        } else {
+          // If the user has no staff role in Firestore, log them out and show error
+          await logout();
+          setError('You do not have staff access.');
+        }
       }
     } catch (err) {
       console.error(err);
@@ -99,7 +119,7 @@ export const LoginPage = () => {
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm bg-red-50 p-3 rounded-lg">
+            <div className="text-red-500 text-sm bg-red-50 p-3 rounded-lg border border-red-200">
               {error}
             </div>
           )}

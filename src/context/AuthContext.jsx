@@ -1,27 +1,52 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
+import { auth, db } from '../firebase/config';
 
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [claims, setClaims] = useState(null);
+  const [role, setRole] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         try {
-          const idTokenResult = await currentUser.getIdTokenResult(true);
-          setClaims(idTokenResult.claims);
+          // First check admins
+          let adminDoc = await getDoc(doc(db, 'admins', currentUser.uid));
+          
+          // Automatic Admin Bootstrap
+          if (!adminDoc.exists() && currentUser.email === 'admin@barbershop.com') {
+            await setDoc(doc(db, 'admins', currentUser.uid), {
+              role: "admin",
+              name: "Administrator",
+              email: "admin@barbershop.com",
+              active: true,
+              createdAt: Timestamp.now()
+            });
+            adminDoc = await getDoc(doc(db, 'admins', currentUser.uid));
+          }
+
+          if (adminDoc.exists()) {
+            setRole('admin');
+          } else {
+            // Then check barbers
+            const barberDoc = await getDoc(doc(db, 'barbers', currentUser.uid));
+            if (barberDoc.exists()) {
+              setRole('barber');
+            } else {
+              setRole(null);
+            }
+          }
         } catch (error) {
-          console.error("Error fetching claims", error);
-          setClaims(null);
+          console.error("Error fetching user role from Firestore", error);
+          setRole(null);
         }
       } else {
-        setClaims(null);
+        setRole(null);
       }
       setLoading(false);
     });
@@ -39,7 +64,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
-    claims,
+    role,
     loading,
     login,
     logout

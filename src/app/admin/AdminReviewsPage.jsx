@@ -1,30 +1,86 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { ReviewCard } from '../../components/ui/ReviewCard';
+import { getAllReviews, approveReview, rejectReview } from '../../firebase/reviewService';
+import { db } from '../../firebase/config';
+import { doc, deleteDoc } from 'firebase/firestore';
 
 export const AdminReviewsPage = () => {
   const [activeTab, setActiveTab] = useState('Pending');
   const tabs = ['Pending', 'Approved', 'Rejected', 'All'];
 
-  const [reviews, setReviews] = useState([
-    { id: '1', customerName: 'Alex T.', date: '2 days ago', rating: 5, reviewText: 'Best fade I have ever had. John pays so much attention to detail.', barberName: 'John Doe', status: 'pending' },
-    { id: '2', customerName: 'Sam R.', date: '1 week ago', rating: 5, reviewText: 'The online booking makes it so easy. Walked in and sat right in the chair.', barberName: 'Mike Smith', status: 'approved' },
-    { id: '3', customerName: 'Jordan P.', date: '2 weeks ago', rating: 5, reviewText: 'Great atmosphere and professional service. Highly recommend the combo.', barberName: 'David Lee', status: 'pending' },
-    { id: '4', customerName: 'Chris Evans', date: '3 weeks ago', rating: 2, reviewText: 'Waited too long despite having an appointment.', barberName: 'John Doe', status: 'rejected' },
-  ]);
+  const [reviews, setReviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [processingId, setProcessingId] = useState(null);
 
-  const filteredReviews = activeTab === 'All' 
-    ? reviews 
+  const loadReviews = async () => {
+    try {
+      setError(null);
+      const data = await getAllReviews();
+      setReviews(data);
+    } catch (err) {
+      console.error('Error loading reviews:', err);
+      setError('Failed to load reviews. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadReviews(); }, []);
+
+  const filteredReviews = activeTab === 'All'
+    ? reviews
     : reviews.filter(r => r.status === activeTab.toLowerCase());
 
-  const handleApprove = (id) => {
-    setReviews(reviews.map(r => r.id === id ? { ...r, status: 'approved' } : r));
-  };
-
-  const handleReject = (id) => {
-    setReviews(reviews.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
-  };
-
   const pendingCount = reviews.filter(r => r.status === 'pending').length;
+
+  const handleApprove = async (id) => {
+    setProcessingId(id);
+    try {
+      await approveReview(id);
+      setReviews(prev => prev.map(r => r.id === id ? { ...r, status: 'approved' } : r));
+    } catch (err) {
+      console.error('Error approving review:', err);
+      alert('Failed to approve review.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleReject = async (id) => {
+    setProcessingId(id);
+    try {
+      await rejectReview(id);
+      setReviews(prev => prev.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
+    } catch (err) {
+      console.error('Error rejecting review:', err);
+      alert('Failed to reject review.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this review permanently?')) return;
+    setProcessingId(id);
+    try {
+      await deleteDoc(doc(db, 'reviews', id));
+      setReviews(prev => prev.filter(r => r.id !== id));
+    } catch (err) {
+      console.error('Error deleting review:', err);
+      alert('Failed to delete review.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    const pendingReviews = reviews.filter(r => r.status === 'pending');
+    for (const r of pendingReviews) {
+      await handleApprove(r.id);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto animate-in fade-in duration-300 pb-10">
@@ -34,7 +90,10 @@ export const AdminReviewsPage = () => {
           <p className="text-text-secondary">Moderate customer reviews before they appear publicly.</p>
         </div>
         {pendingCount > 0 && activeTab === 'Pending' && (
-          <button className="bg-success text-white px-4 py-2 rounded-lg font-medium hover:bg-success/90 transition-colors shadow-sm">
+          <button
+            onClick={handleApproveAll}
+            className="bg-success text-white px-4 py-2 rounded-lg font-medium hover:bg-success/90 transition-colors shadow-sm"
+          >
             Approve All Pending ({pendingCount})
           </button>
         )}
@@ -46,9 +105,7 @@ export const AdminReviewsPage = () => {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-6 py-4 whitespace-nowrap text-sm font-medium transition-colors relative ${
-              activeTab === tab ? 'text-navy' : 'text-text-secondary hover:text-navy'
-            }`}
+            className={`px-6 py-4 whitespace-nowrap text-sm font-medium transition-colors relative ${activeTab === tab ? 'text-navy' : 'text-text-secondary hover:text-navy'}`}
           >
             {tab}
             {tab === 'Pending' && pendingCount > 0 && (
@@ -63,34 +120,49 @@ export const AdminReviewsPage = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredReviews.map(review => (
-          <div key={review.id} className="relative">
-            {review.status === 'rejected' && (
-              <div className="absolute top-4 right-4 z-10 bg-error/10 text-error text-xs font-bold px-2 py-1 rounded uppercase tracking-wide border border-error/20">
-                Rejected
-              </div>
-            )}
-            {review.status === 'approved' && (
-              <div className="absolute top-4 right-4 z-10 bg-success/10 text-success text-xs font-bold px-2 py-1 rounded uppercase tracking-wide border border-success/20">
-                Approved
-              </div>
-            )}
-            <ReviewCard 
-              {...review} 
-              isAdmin={review.status === 'pending'}
-              onApprove={() => handleApprove(review.id)}
-              onReject={() => handleReject(review.id)}
-              className={review.status === 'rejected' ? 'opacity-75 grayscale-[50%]' : ''}
-            />
-          </div>
-        ))}
-        {filteredReviews.length === 0 && (
-          <div className="col-span-full py-20 text-center text-text-muted">
-            No reviews found for this status.
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-navy" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <AlertCircle className="w-10 h-10 text-error mb-4" />
+          <p className="text-error">{error}</p>
+          <button className="mt-4 text-navy underline" onClick={loadReviews}>Try Again</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredReviews.map(review => (
+            <div key={review.id} className="relative">
+              {review.status === 'rejected' && (
+                <div className="absolute top-4 right-4 z-10 bg-error/10 text-error text-xs font-bold px-2 py-1 rounded uppercase tracking-wide border border-error/20">
+                  Rejected
+                </div>
+              )}
+              {review.status === 'approved' && (
+                <div className="absolute top-4 right-4 z-10 bg-success/10 text-success text-xs font-bold px-2 py-1 rounded uppercase tracking-wide border border-success/20">
+                  Approved
+                </div>
+              )}
+              <ReviewCard
+                {...review}
+                isAdmin={review.status === 'pending'}
+                isProcessing={processingId === review.id}
+                onApprove={() => handleApprove(review.id)}
+                onReject={() => handleReject(review.id)}
+                onDelete={() => handleDelete(review.id)}
+                className={review.status === 'rejected' ? 'opacity-75 grayscale-[50%]' : ''}
+              />
+            </div>
+          ))}
+          {filteredReviews.length === 0 && (
+            <div className="col-span-full py-20 text-center text-text-muted">
+              <p className="text-lg font-medium">No {activeTab.toLowerCase()} reviews found.</p>
+              {activeTab === 'Pending' && <p className="text-sm mt-1">All reviews have been moderated.</p>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
