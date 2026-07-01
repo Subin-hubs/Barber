@@ -1,5 +1,5 @@
 import { db } from './config';
-import { collection, doc, addDoc, getDoc, getDocs, updateDoc, query, where, orderBy, writeBatch, Timestamp } from 'firebase/firestore';
+import { collection, doc, addDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy, writeBatch, Timestamp } from 'firebase/firestore';
 
 export function generateBookingId() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -105,6 +105,33 @@ export async function getBarberBookings(barberId, date) {
   return docs.sort((a, b) => a.slot.localeCompare(b.slot));
 }
 
+/**
+ * Fetch all bookings for a specific barber with optional filters.
+ * Sorting and advanced filtering are done client-side to avoid Firestore composite index requirements.
+ * @param {string} barberId
+ * @param {{ startDate?: string, endDate?: string, status?: string }} options
+ */
+export async function getBarberAllBookings(barberId, { startDate, endDate, status } = {}) {
+  const constraints = [where('barberId', '==', barberId)];
+  if (startDate) constraints.push(where('date', '>=', startDate));
+  if (endDate) constraints.push(where('date', '<=', endDate));
+
+  const q = query(collection(db, 'bookings'), ...constraints);
+  const snapshot = await getDocs(q);
+  let docs = snapshot.docs.map(doc => normalizeBookingData(doc.id, doc.data()));
+
+  // Client-side status filter (avoids needing a composite index with date range + status)
+  if (status && status !== 'all') {
+    docs = docs.filter(d => d.status === status);
+  }
+
+  // Sort by date descending, then slot ascending
+  return docs.sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return a.slot.localeCompare(b.slot);
+  });
+}
+
 export async function getTakenSlots(date, barberId) {
   const q = query(
     collection(db, 'bookings'),
@@ -166,6 +193,62 @@ export async function markEmailSent(docId) {
   await updateDoc(docRef, { emailSent: true });
 }
 
+/**
+ * Permanently delete a booking document.
+ */
+export async function deleteBooking(docId) {
+  await deleteDoc(doc(db, 'bookings', docId));
+}
+
+/**
+ * Generate and trigger a CSV download of the provided bookings array.
+ * Runs entirely client-side.
+ */
+export function exportBookingsToCsv(bookings, filename = 'appointments.csv') {
+  if (!bookings || bookings.length === 0) return;
+
+  const headers = [
+    'Booking ID', 'Customer Name', 'Phone', 'Email',
+    'Barber', 'Service', 'Date', 'Slot', 'Duration (min)',
+    'Price (NPR)', 'Status', 'Source', 'Notes'
+  ];
+
+  const escape = (val) => {
+    const str = val == null ? '' : String(val);
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"`
+      : str;
+  };
+
+  const rows = bookings.map(b => [
+    escape(b.bookingId),
+    escape(b.customerName),
+    escape(b.customerPhone),
+    escape(b.customerEmail),
+    escape(b.barberName),
+    escape(b.serviceName),
+    escape(b.date),
+    escape(b.slot),
+    escape(b.duration),
+    escape(b.price),
+    escape(b.status),
+    escape(b.source),
+    escape(b.notes)
+  ].join(','));
+
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function getAdminDashboardMetrics() {
   const snapshot = await getDocs(collection(db, 'bookings'));
   const docs = snapshot.docs.map(doc => normalizeBookingData(doc.id, doc.data()));
@@ -180,6 +263,8 @@ export async function getAdminDashboardMetrics() {
   let todaysBookings = 0;
   let todaysRevenue = 0;
   let pendingConfirmations = 0;
+  let completedToday = 0;
+  let cancelledToday = 0;
   let statusCounts = { confirmed: 0, completed: 0, pending: 0, in_progress: 0, cancelled: 0 };
   
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -201,6 +286,8 @@ export async function getAdminDashboardMetrics() {
       if (['completed', 'in_progress', 'confirmed'].includes(b.status)) {
          todaysRevenue += Number(b.price || 0);
       }
+      if (b.status === 'completed') completedToday++;
+      if (b.status === 'cancelled') cancelledToday++;
     }
     
     if (b.status === 'pending') {
@@ -241,6 +328,8 @@ export async function getAdminDashboardMetrics() {
   return {
     todaysBookings,
     todaysRevenue,
+    completedToday,
+    cancelledToday,
     pendingConfirmations,
     recentAppointments,
     weekCounts: weekStats.map(ws => ws.count),

@@ -38,6 +38,7 @@ import { BarberDashboard } from './app/barber/BarberDashboard';
 import { BarberAppointmentsPage } from './app/barber/BarberAppointmentsPage';
 import { BarberSchedulePage } from './app/barber/BarberSchedulePage';
 import { BarberAvailabilityPage } from './app/barber/BarberAvailabilityPage';
+import { BarberProfilePage } from './app/barber/BarberProfilePage';
 
 // Guards
 import { RequireAuth } from './guards/RequireAuth';
@@ -82,6 +83,7 @@ function App() {
             <Route path="appointments" element={<BarberAppointmentsPage />} />
             <Route path="schedule" element={<BarberSchedulePage />} />
             <Route path="availability" element={<BarberAvailabilityPage />} />
+            <Route path="profile" element={<BarberProfilePage />} />
           </Route>
 
           {/* Admin Portal Routes */}

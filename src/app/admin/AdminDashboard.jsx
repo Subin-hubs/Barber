@@ -1,29 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarDays, DollarSign, UserX, Clock, ArrowRight } from 'lucide-react';
+import { CalendarDays, DollarSign, UserX, Clock, ArrowRight, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { getAdminDashboardMetrics } from '../../firebase/bookingService';
 
 export const AdminDashboard = () => {
+  const navigate = useNavigate();
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        const data = await getAdminDashboardMetrics();
-        setMetrics(data);
-      } catch (err) {
-        console.error("Failed to fetch dashboard metrics:", err);
-        setError("Failed to load dashboard data. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchMetrics();
-  }, []);
+  const fetchMetrics = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAdminDashboardMetrics();
+      setMetrics(data);
+    } catch (err) {
+      console.error('Failed to fetch dashboard metrics:', err);
+      setError('Failed to load dashboard data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchMetrics(); }, []);
 
   if (loading) {
     return (
@@ -35,49 +37,55 @@ export const AdminDashboard = () => {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[50vh]">
+      <div className="max-w-7xl mx-auto flex flex-col items-center justify-center min-h-[50vh] gap-4">
         <div className="text-red-500 bg-red-50 p-4 rounded-xl border border-red-100">{error}</div>
+        <Button variant="secondary" onClick={fetchMetrics}>Try Again</Button>
       </div>
     );
   }
 
   const kpis = [
-    { label: "Today's Bookings", value: String(metrics.todaysBookings), icon: CalendarDays },
-    { label: "Today's Revenue", value: `NPR ${metrics.todaysRevenue.toLocaleString()}`, icon: DollarSign },
-    { label: 'No-show Rate (all time)', value: `${metrics.noShowRate}%`, icon: UserX },
-    { label: 'Pending Confirmations', value: String(metrics.pendingConfirmations), icon: Clock },
+    { label: "Today's Bookings",      value: String(metrics.todaysBookings),                              icon: CalendarDays, iconBg: 'bg-gold-light',    iconColor: 'text-gold'    },
+    { label: "Today's Revenue",       value: `NPR ${metrics.todaysRevenue.toLocaleString()}`,              icon: DollarSign,   iconBg: 'bg-gold-light',    iconColor: 'text-gold'    },
+    { label: 'Pending Confirmations', value: String(metrics.pendingConfirmations),                         icon: Clock,        iconBg: 'bg-warning/10',    iconColor: 'text-warning' },
+    { label: 'Completed Today',       value: String(metrics.completedToday),                               icon: CheckCircle,  iconBg: 'bg-success/10',    iconColor: 'text-success' },
+    { label: 'Cancelled Today',       value: String(metrics.cancelledToday),                               icon: XCircle,      iconBg: 'bg-error/10',      iconColor: 'text-error'   },
+    { label: 'No-show Rate',          value: `${metrics.noShowRate}%`,                                     icon: UserX,        iconBg: 'bg-navy/10',       iconColor: 'text-navy'    },
   ];
 
   return (
     <div className="max-w-7xl mx-auto animate-in fade-in duration-300 pb-10">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-navy mb-2">Dashboard</h1>
-          <p className="text-text-secondary">Overview of your shop's performance today.</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-navy mb-1">Dashboard</h1>
+          <p className="text-sm text-text-secondary">Overview of your shop's performance today.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 self-start">
           <Link to="/admin/walk-in">
             <Button className="bg-gold text-navy hover:bg-gold-hover border-transparent">
               Add Walk-in
             </Button>
           </Link>
-          <Button variant="secondary" className="bg-white border-border text-navy hover:bg-muted">
+          {/* ✅ Generate Report now navigates to Reports page */}
+          <Button
+            variant="secondary"
+            className="bg-white border-border text-navy hover:bg-muted"
+            onClick={() => navigate('/admin/reports')}
+          >
             Generate Report
           </Button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* KPIs — 6 cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
         {kpis.map((kpi, i) => (
-          <div key={i} className="bg-white rounded-2xl p-6 shadow-sm border border-border">
-            <div className="flex justify-between items-start mb-4">
-              <div className="w-12 h-12 rounded-full bg-gold-light flex items-center justify-center">
-                <kpi.icon className="w-6 h-6 text-gold" />
-              </div>
+          <div key={i} className="bg-white rounded-2xl p-5 shadow-sm border border-border">
+            <div className={`inline-flex p-2.5 rounded-xl ${kpi.iconBg} mb-3`}>
+              <kpi.icon className={`w-5 h-5 ${kpi.iconColor}`} />
             </div>
-            <p className="text-3xl font-bold text-navy mb-1">{kpi.value}</p>
-            <p className="text-sm font-medium text-text-muted">{kpi.label}</p>
+            <p className="text-2xl font-bold text-navy mb-0.5">{kpi.value}</p>
+            <p className="text-xs font-medium text-text-muted leading-tight">{kpi.label}</p>
           </div>
         ))}
       </div>
@@ -93,11 +101,11 @@ export const AdminDashboard = () => {
                 return (
                   <div key={day + i} className="flex flex-col items-center flex-1 group">
                     <div className="w-full relative h-40 flex items-end justify-center">
-                      <div 
+                      <div
                         className="w-full max-w-[3rem] bg-gold-light group-hover:bg-gold rounded-t-sm transition-colors duration-300"
                         style={{ height: `${height}%` }}
                         title={`${metrics.weekCounts[i]} bookings`}
-                      ></div>
+                      />
                     </div>
                     <span className="text-xs font-semibold text-text-muted mt-3 uppercase">{day}</span>
                   </div>
@@ -119,8 +127,8 @@ export const AdminDashboard = () => {
                   <tr className="bg-muted/30 text-text-muted text-xs uppercase tracking-wider font-semibold">
                     <th className="p-4">ID</th>
                     <th className="p-4">Customer</th>
-                    <th className="p-4">Barber</th>
-                    <th className="p-4">Service</th>
+                    <th className="p-4 hidden md:table-cell">Barber</th>
+                    <th className="p-4 hidden sm:table-cell">Service</th>
                     <th className="p-4">Time</th>
                     <th className="p-4">Status</th>
                     <th className="p-4 text-right">Actions</th>
@@ -136,9 +144,9 @@ export const AdminDashboard = () => {
                       <tr key={apt.id} className="hover:bg-muted/30 transition-colors">
                         <td className="p-4 font-mono text-sm text-gold font-medium">{apt.bookingId || apt.id.substring(0, 6)}</td>
                         <td className="p-4 font-medium text-text-primary">{apt.customerName}</td>
-                        <td className="p-4 text-text-secondary">{apt.barberName}</td>
-                        <td className="p-4 text-text-secondary">{apt.serviceName}</td>
-                        <td className="p-4 font-medium text-navy">{apt.date} {apt.slot}</td>
+                        <td className="p-4 text-text-secondary hidden md:table-cell">{apt.barberName}</td>
+                        <td className="p-4 text-text-secondary hidden sm:table-cell">{apt.serviceName}</td>
+                        <td className="p-4 font-medium text-navy text-sm">{apt.date} {apt.slot}</td>
                         <td className="p-4"><StatusBadge status={apt.status} /></td>
                         <td className="p-4 text-right">
                           <Link to="/admin/appointments" className="text-xs font-medium text-navy hover:text-gold transition-colors">View</Link>
@@ -158,22 +166,22 @@ export const AdminDashboard = () => {
             <h2 className="text-xl font-bold text-navy mb-6">Appointments by Status</h2>
             <div className="flex items-center justify-center h-48 relative">
               <div className="w-32 h-32 rounded-full border-[16px] border-border relative flex items-center justify-center">
-                 <span className="text-xl font-bold text-navy">{metrics.statusPercentages.confirmed || 0}%</span>
-                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-t-gold border-r-gold rotate-45 opacity-80"></div>
-                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-l-navy -rotate-45 opacity-80"></div>
+                <span className="text-xl font-bold text-navy">{metrics.statusPercentages.confirmed || 0}%</span>
+                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-t-gold border-r-gold rotate-45 opacity-80" />
+                <div className="absolute inset-[-16px] rounded-full border-[16px] border-transparent border-l-navy -rotate-45 opacity-80" />
               </div>
             </div>
             <div className="space-y-3 mt-6">
               <div className="flex justify-between text-sm">
-                <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-gold mr-2"></span> Confirmed</div>
+                <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-gold mr-2" /> Confirmed</div>
                 <span className="font-semibold text-navy">{metrics.statusPercentages.confirmed || 0}%</span>
               </div>
               <div className="flex justify-between text-sm">
-                <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-navy mr-2"></span> Completed</div>
+                <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-navy mr-2" /> Completed</div>
                 <span className="font-semibold text-navy">{metrics.statusPercentages.completed || 0}%</span>
               </div>
               <div className="flex justify-between text-sm">
-                <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-border mr-2"></span> Pending</div>
+                <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-border mr-2" /> Pending</div>
                 <span className="font-semibold text-navy">{metrics.statusPercentages.pending || 0}%</span>
               </div>
             </div>
@@ -190,6 +198,9 @@ export const AdminDashboard = () => {
               </Link>
               <Link to="/admin/barbers" className="block w-full text-left px-4 py-3 rounded-lg border border-border hover:border-navy hover:bg-navy/5 transition-colors font-medium text-navy">
                 + Add New Barber
+              </Link>
+              <Link to="/admin/reports" className="block w-full text-left px-4 py-3 rounded-lg border border-border hover:border-navy hover:bg-navy/5 transition-colors font-medium text-navy">
+                View Full Report
               </Link>
             </div>
           </div>

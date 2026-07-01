@@ -186,14 +186,21 @@ export async function updateBarber(id, data) {
 }
 
 export async function deactivateBarber(id) {
-  await updateDoc(doc(db, "barbers", id), {
+  await updateDoc(doc(db, 'barbers', id), {
     active: false,
     updatedAt: Timestamp.now()
   });
 }
 
+export async function reactivateBarber(id) {
+  await updateDoc(doc(db, 'barbers', id), {
+    active: true,
+    updatedAt: Timestamp.now()
+  });
+}
+
 export async function updateBarberAvailability(id, workingHours) {
-  await updateDoc(doc(db, "barbers", id), {
+  await updateDoc(doc(db, 'barbers', id), {
     workingHours,
     updatedAt: Timestamp.now()
   });

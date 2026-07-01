@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { BarberCard } from '../../components/ui/BarberCard';
 import { Modal } from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { getAllBarbers, createBarber, updateBarber, deactivateBarber } from '../../firebase/barberService';
+import { getAllBarbers, createBarber, updateBarber, deactivateBarber, reactivateBarber } from '../../firebase/barberService';
 
 export const AdminBarbersPage = () => {
   const [barbers, setBarbers] = useState([]);
@@ -135,7 +135,9 @@ export const AdminBarbersPage = () => {
         await updateBarber(editingBarber.id, payload);
         showNotification('Barber updated successfully');
       } else {
-        await createBarber(payload, formData.password);
+        // Pass normalizedWorkingHours to createBarber so it uses these hours,
+        // not the service's internal defaults
+        await createBarber({ ...payload, workingDays: formData.workingDays }, formData.password);
         showNotification('Barber added successfully');
       }
 
@@ -156,12 +158,22 @@ export const AdminBarbersPage = () => {
   const handleDeactivate = async () => {
     if (!confirmDialog.barberId) return;
     try {
-      await deactivateBarber(confirmDialog.barberId);
-      showNotification('Barber deactivated successfully');
-      fetchBarbers();
+      if (confirmDialog.action === 'reactivate') {
+        await reactivateBarber(confirmDialog.barberId);
+        showNotification('Barber reactivated successfully');
+      } else {
+        await deactivateBarber(confirmDialog.barberId);
+        showNotification('Barber deactivated successfully');
+      }
+      // Optimistic local update — no page reload needed
+      setBarbers(prev => prev.map(b =>
+        b.id === confirmDialog.barberId
+          ? { ...b, active: confirmDialog.action === 'reactivate' }
+          : b
+      ));
     } catch (err) {
       console.error(err);
-      setError('Failed to deactivate barber');
+      setError(confirmDialog.action === 'reactivate' ? 'Failed to reactivate barber' : 'Failed to deactivate barber');
     } finally {
       setConfirmDialog({ isOpen: false, barberId: null, action: null });
     }
@@ -206,11 +218,16 @@ export const AdminBarbersPage = () => {
           {barbers.map((barber) => (
             <div key={barber.id} className="relative">
                {!barber.active && <div className="absolute top-2 right-2 z-10 bg-error text-white text-xs px-2 py-1 rounded-full font-bold">Inactive</div>}
-               <BarberCard 
-                 {...barber} 
-                 isAdmin={true} 
+               <BarberCard
+                 {...barber}
+                 isAdmin={true}
                  onEdit={() => openEditModal(barber)}
-                 onDeactivate={barber.active ? () => setConfirmDialog({ isOpen: true, barberId: barber.id, action: 'deactivate' }) : undefined}
+                 onDeactivate={
+                   barber.active
+                     ? () => setConfirmDialog({ isOpen: true, barberId: barber.id, action: 'deactivate' })
+                     : () => setConfirmDialog({ isOpen: true, barberId: barber.id, action: 'reactivate' })
+                 }
+                 deactivateLabel={barber.active ? 'Deactivate' : 'Reactivate'}
                />
             </div>
           ))}
@@ -301,14 +318,18 @@ export const AdminBarbersPage = () => {
         </form>
       </Modal>
 
-      <ConfirmDialog 
-        isOpen={confirmDialog.isOpen} 
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog({ isOpen: false, barberId: null, action: null })}
         onConfirm={handleDeactivate}
-        title="Deactivate Barber"
-        message="Are you sure you want to deactivate this barber? They will no longer be available for new bookings."
-        confirmText="Deactivate"
-        isDestructive={true}
+        title={confirmDialog.action === 'reactivate' ? 'Reactivate Barber' : 'Deactivate Barber'}
+        message={
+          confirmDialog.action === 'reactivate'
+            ? 'Reactivate this barber? They will become available for new bookings again.'
+            : 'Are you sure you want to deactivate this barber? They will no longer be available for new bookings.'
+        }
+        confirmText={confirmDialog.action === 'reactivate' ? 'Reactivate' : 'Deactivate'}
+        isDestructive={confirmDialog.action !== 'reactivate'}
       />
     </div>
   );

@@ -10,8 +10,8 @@ import {
   Star
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import { getAllBookings } from '../../firebase/bookingService';
-import { getAllBarbers } from '../../firebase/barberService';
+import { getAllBookings, exportBookingsToCsv } from '../../firebase/bookingService';
+import { getActiveBarbers } from '../../firebase/barberService';
 
 const dateRanges = ['Today', 'This Week', 'This Month', 'All Time'];
 
@@ -53,7 +53,7 @@ export const AdminReportsPage = () => {
         const { start, end } = getDateBounds(dateRange);
         const [bookingList, barberList] = await Promise.all([
           getAllBookings({ startDate: start || undefined, endDate: end || undefined }),
-          getAllBarbers()
+          getActiveBarbers()
         ]);
         setBookings(bookingList);
         setBarbers(barberList);
@@ -66,6 +66,10 @@ export const AdminReportsPage = () => {
     };
     loadData();
   }, [dateRange]);
+
+  const handleExportCsv = () => {
+    exportBookingsToCsv(bookings, `report-${dateRange.replace(' ', '_').toLowerCase()}.csv`);
+  };
 
   // Computed metrics
   const totalRevenue = bookings.filter(b => ['completed', 'in_progress', 'confirmed'].includes(b.status)).reduce((sum, b) => sum + (b.price || 0), 0);
@@ -125,7 +129,12 @@ export const AdminReportsPage = () => {
           >
             {dateRanges.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
-          <Button variant="secondary" className="bg-white border-border text-navy hover:bg-muted">
+          <Button
+            variant="secondary"
+            className="bg-white border-border text-navy hover:bg-muted"
+            onClick={handleExportCsv}
+            disabled={bookings.length === 0}
+          >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </Button>

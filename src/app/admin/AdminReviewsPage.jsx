@@ -1,40 +1,60 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Loader2, AlertCircle, Search, RefreshCw } from 'lucide-react';
 import { ReviewCard } from '../../components/ui/ReviewCard';
-import { getAllReviews, approveReview, rejectReview } from '../../firebase/reviewService';
-import { db } from '../../firebase/config';
-import { doc, deleteDoc } from 'firebase/firestore';
+import { getAllReviews, approveReview, rejectReview, deleteReview } from '../../firebase/reviewService';
+import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 
 export const AdminReviewsPage = () => {
   const [activeTab, setActiveTab] = useState('Pending');
   const tabs = ['Pending', 'Approved', 'Rejected', 'All'];
 
-  const [reviews, setReviews] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [reviews, setReviews]         = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
   const [processingId, setProcessingId] = useState(null);
 
-  const loadReviews = async () => {
+  const [searchTerm, setSearchTerm]   = useState('');
+
+  // Delete confirm
+  const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, id: null, author: '' });
+  const [deleting, setDeleting]         = useState(false);
+
+  const loadReviews = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setError(null);
       const data = await getAllReviews();
-      setReviews(data);
+      setReviews(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error loading reviews:', err);
       setError('Failed to load reviews. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { loadReviews(); }, []);
+  useEffect(() => { loadReviews(); }, [loadReviews]);
 
-  const filteredReviews = activeTab === 'All'
+  /* ---- Filtering ---------------------------------------------------- */
+  const byTab = activeTab === 'All'
     ? reviews
     : reviews.filter(r => r.status === activeTab.toLowerCase());
 
+  const filteredReviews = byTab.filter(r => {
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.toLowerCase();
+    return (
+      r.author?.toLowerCase().includes(q) ||
+      r.name?.toLowerCase().includes(q) ||
+      r.message?.toLowerCase().includes(q) ||
+      r.comment?.toLowerCase().includes(q)
+    );
+  });
+
   const pendingCount = reviews.filter(r => r.status === 'pending').length;
 
+  /* ---- Actions ------------------------------------------------------ */
   const handleApprove = async (id) => {
     setProcessingId(id);
     try {
@@ -42,7 +62,6 @@ export const AdminReviewsPage = () => {
       setReviews(prev => prev.map(r => r.id === id ? { ...r, status: 'approved' } : r));
     } catch (err) {
       console.error('Error approving review:', err);
-      alert('Failed to approve review.');
     } finally {
       setProcessingId(null);
     }
@@ -55,48 +74,66 @@ export const AdminReviewsPage = () => {
       setReviews(prev => prev.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
     } catch (err) {
       console.error('Error rejecting review:', err);
-      alert('Failed to reject review.');
     } finally {
       setProcessingId(null);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this review permanently?')) return;
-    setProcessingId(id);
+  const openDeleteDialog = (review) => {
+    setDeleteDialog({ isOpen: true, id: review.id, author: review.author || review.name || 'Unknown' });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteDialog.id) return;
+    setDeleting(true);
     try {
-      await deleteDoc(doc(db, 'reviews', id));
-      setReviews(prev => prev.filter(r => r.id !== id));
+      await deleteReview(deleteDialog.id);
+      setReviews(prev => prev.filter(r => r.id !== deleteDialog.id));
+      setDeleteDialog({ isOpen: false, id: null, author: '' });
     } catch (err) {
       console.error('Error deleting review:', err);
-      alert('Failed to delete review.');
     } finally {
-      setProcessingId(null);
+      setDeleting(false);
     }
   };
 
   const handleApproveAll = async () => {
-    const pendingReviews = reviews.filter(r => r.status === 'pending');
-    for (const r of pendingReviews) {
-      await handleApprove(r.id);
-    }
+    const pending = reviews.filter(r => r.status === 'pending');
+    for (const r of pending) { await handleApprove(r.id); }
   };
 
   return (
     <div className="max-w-7xl mx-auto animate-in fade-in duration-300 pb-10">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-navy mb-2">Reviews</h1>
-          <p className="text-text-secondary">Moderate customer reviews before they appear publicly.</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-navy mb-1">Reviews</h1>
+          <p className="text-sm text-text-secondary">Moderate customer reviews before they appear publicly.</p>
         </div>
-        {pendingCount > 0 && activeTab === 'Pending' && (
-          <button
-            onClick={handleApproveAll}
-            className="bg-success text-white px-4 py-2 rounded-lg font-medium hover:bg-success/90 transition-colors shadow-sm"
-          >
-            Approve All Pending ({pendingCount})
-          </button>
-        )}
+        <div className="flex items-center gap-3 self-start">
+          <Button variant="ghost" onClick={loadReviews}>
+            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          </Button>
+          {pendingCount > 0 && activeTab === 'Pending' && (
+            <button
+              onClick={handleApproveAll}
+              className="bg-success text-white px-4 py-2 rounded-lg font-medium hover:bg-success/90 transition-colors shadow-sm text-sm"
+            >
+              Approve All ({pendingCount})
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-6 max-w-sm">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+        <input
+          type="text"
+          placeholder="Search reviews..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="w-full pl-9 pr-4 py-2 border border-border rounded-lg outline-none focus:ring-2 focus:ring-navy text-sm"
+        />
       </div>
 
       {/* Tabs */}
@@ -105,16 +142,14 @@ export const AdminReviewsPage = () => {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-6 py-4 whitespace-nowrap text-sm font-medium transition-colors relative ${activeTab === tab ? 'text-navy' : 'text-text-secondary hover:text-navy'}`}
+            className={`px-5 py-3.5 whitespace-nowrap text-sm font-medium transition-colors relative ${activeTab === tab ? 'text-navy' : 'text-text-secondary hover:text-navy'}`}
           >
             {tab}
             {tab === 'Pending' && pendingCount > 0 && (
-              <span className="ml-2 bg-error text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                {pendingCount}
-              </span>
+              <span className="ml-2 bg-error text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingCount}</span>
             )}
             {activeTab === tab && (
-              <span className="absolute bottom-[-1px] left-0 w-full h-[3px] bg-gold rounded-t-full z-10"></span>
+              <span className="absolute bottom-[-1px] left-0 w-full h-[3px] bg-gold rounded-t-full z-10" />
             )}
           </button>
         ))}
@@ -128,7 +163,7 @@ export const AdminReviewsPage = () => {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <AlertCircle className="w-10 h-10 text-error mb-4" />
           <p className="text-error">{error}</p>
-          <button className="mt-4 text-navy underline" onClick={loadReviews}>Try Again</button>
+          <Button variant="secondary" className="mt-4" onClick={loadReviews}>Try Again</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -150,19 +185,34 @@ export const AdminReviewsPage = () => {
                 isProcessing={processingId === review.id}
                 onApprove={() => handleApprove(review.id)}
                 onReject={() => handleReject(review.id)}
-                onDelete={() => handleDelete(review.id)}
+                onDelete={() => openDeleteDialog(review)}
                 className={review.status === 'rejected' ? 'opacity-75 grayscale-[50%]' : ''}
               />
             </div>
           ))}
           {filteredReviews.length === 0 && (
             <div className="col-span-full py-20 text-center text-text-muted">
-              <p className="text-lg font-medium">No {activeTab.toLowerCase()} reviews found.</p>
-              {activeTab === 'Pending' && <p className="text-sm mt-1">All reviews have been moderated.</p>}
+              <p className="text-lg font-medium">
+                {searchTerm ? 'No reviews match your search.' : `No ${activeTab.toLowerCase()} reviews found.`}
+              </p>
+              {activeTab === 'Pending' && !searchTerm && <p className="text-sm mt-1">All reviews have been moderated.</p>}
             </div>
           )}
         </div>
       )}
+
+      {/* Delete confirm */}
+      <ConfirmDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ isOpen: false, id: null, author: '' })}
+        onConfirm={handleConfirmDelete}
+        title="Delete Review"
+        message={`Permanently delete the review from "${deleteDialog.author}"? This cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDestructive={true}
+        isLoading={deleting}
+      />
     </div>
   );
 };

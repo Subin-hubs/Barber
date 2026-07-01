@@ -1,5 +1,8 @@
 import { db } from './config';
-import { collection, doc, addDoc, getDoc, getDocs, updateDoc, query, where, orderBy, Timestamp } from 'firebase/firestore';
+import {
+  collection, doc, addDoc, getDoc, getDocs,
+  updateDoc, deleteDoc, query, where, orderBy, Timestamp
+} from 'firebase/firestore';
 
 const normalizeServiceData = (docId, data) => {
   return {
@@ -10,6 +13,7 @@ const normalizeServiceData = (docId, data) => {
     price: Number(data.price) || 0,
     active: data.active !== false,
     order: Number(data.order) || 0,
+    isDeleted: !!data.isDeleted,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt
   };
@@ -21,17 +25,27 @@ export async function getActiveServices() {
     where('active', '==', true)
   );
   const snapshot = await getDocs(q);
-  const docs = snapshot.docs.map(doc => normalizeServiceData(doc.id, doc.data()));
+  const docs = snapshot.docs
+    .map(doc => normalizeServiceData(doc.id, doc.data()))
+    .filter(s => !s.isDeleted); // exclude soft-deleted
   return docs.sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
 export async function getAllServices() {
-  const q = query(
-    collection(db, 'services'),
-    orderBy('order')
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => normalizeServiceData(doc.id, doc.data()));
+  try {
+    const q = query(collection(db, 'services'), orderBy('order'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs
+      .map(doc => normalizeServiceData(doc.id, doc.data()))
+      .filter(s => !s.isDeleted); // exclude soft-deleted
+  } catch {
+    // Fallback if no index
+    const snapshot = await getDocs(collection(db, 'services'));
+    return snapshot.docs
+      .map(doc => normalizeServiceData(doc.id, doc.data()))
+      .filter(s => !s.isDeleted)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }
 }
 
 export async function getServiceById(id) {
@@ -50,6 +64,7 @@ export async function createService(data) {
     price: Number(data.price) || 0,
     active: true,
     order: Number(data.order) || 0,
+    isDeleted: false,
     createdAt: Timestamp.now()
   };
   const docRef = await addDoc(servicesRef, newServiceData);
@@ -64,10 +79,11 @@ export async function updateService(id, data) {
   });
 }
 
+/**
+ * Hard delete a service document from Firestore.
+ * The Admin page already removes it from local state after this call,
+ * so no re-fetch is needed.
+ */
 export async function deleteService(id) {
-  const docRef = doc(db, 'services', id);
-  await updateDoc(docRef, {
-    active: false,
-    deletedAt: Timestamp.now()
-  });
+  await deleteDoc(doc(db, 'services', id));
 }
